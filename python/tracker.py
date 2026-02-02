@@ -126,17 +126,31 @@ class LeakerTracker:
 
     async def send_test_message(self):
         """发送测试消息（通过webhook或账号）"""
-        if self.webhook_url:
-            # 使用webhook发送
-            async with aiohttp.ClientSession() as session:
-                payload = {"content": self.test_message}
-                async with session.post(self.webhook_url, json=payload) as resp:
-                    if resp.status != 204 and resp.status != 200:
-                        output_progress(0, 0, 0, f"Webhook发送失败: {resp.status}")
-        else:
-            # 使用账号发送
-            if self.send_channel:
-                await self.send_channel.send(self.test_message)
+        try:
+            if self.webhook_url:
+                # 使用webhook发送
+                async with aiohttp.ClientSession() as session:
+                    payload = {"content": self.test_message}
+                    async with asyncio.timeout(30):  # 30秒超时
+                        async with session.post(self.webhook_url, json=payload) as resp:
+                            if resp.status != 204 and resp.status != 200:
+                                output_progress(0, 0, 0, f"Webhook发送失败: {resp.status}")
+                                raise Exception(f"Webhook发送失败: {resp.status}")
+            else:
+                # 使用账号发送
+                if self.send_channel:
+                    await asyncio.wait_for(
+                        self.send_channel.send(self.test_message),
+                        timeout=30  # 30秒超时
+                    )
+                else:
+                    raise Exception("没有可用的发送频道")
+        except asyncio.TimeoutError:
+            output_progress(0, 0, 0, "【错误】发送消息超时")
+            raise Exception("发送消息超时")
+        except Exception as e:
+            output_progress(0, 0, 0, f"【错误】发送消息失败: {e}")
+            raise
 
     async def binary_search(self, suspects: List[discord.Member],
                            step: int = 1) -> Optional[discord.Member]:
@@ -165,27 +179,35 @@ class LeakerTracker:
                        f"移除前半部分 {len(first_half)} 人的身份组: {', '.join(first_names)}", suspect_names)
 
         removed_roles = await self.remove_roles_from_members(first_half)
-        await asyncio.sleep(1)
+        leaked = False
 
-        output_progress(step, total_steps, len(suspects),
-                       "发送测试消息...", suspect_names)
-        await self.send_test_message()
+        try:
+            await asyncio.sleep(1)
 
-        output_progress(step, total_steps, len(suspects),
-                       f"等待泄露消息 ({self.timeout}秒)...", suspect_names)
-        leaked = await self.wait_for_leak(timeout=self.timeout)
-
-        # 详细显示监听结果
-        if leaked:
             output_progress(step, total_steps, len(suspects),
-                           "【监听到泄露消息】", suspect_names)
-        else:
-            output_progress(step, total_steps, len(suspects),
-                           "【未监听到泄露消息】", suspect_names)
+                           "发送测试消息...", suspect_names)
+            await self.send_test_message()
 
-        output_progress(step, total_steps, len(suspects),
-                       "恢复身份组...", suspect_names)
-        await self.restore_roles(removed_roles)
+            output_progress(step, total_steps, len(suspects),
+                           f"等待泄露消息 ({self.timeout}秒)...", suspect_names)
+            leaked = await self.wait_for_leak(timeout=self.timeout)
+
+            # 详细显示监听结果
+            if leaked:
+                output_progress(step, total_steps, len(suspects),
+                               "【监听到泄露消息】", suspect_names)
+            else:
+                output_progress(step, total_steps, len(suspects),
+                               "【未监听到泄露消息】", suspect_names)
+        except Exception as e:
+            output_progress(step, total_steps, len(suspects),
+                           f"【错误】搜索过程出错: {e}", suspect_names)
+            raise
+        finally:
+            # 无论如何都要恢复身份组
+            output_progress(step, total_steps, len(suspects),
+                           "恢复身份组...", suspect_names)
+            await self.restore_roles(removed_roles)
 
         if leaked:
             output_progress(step, total_steps, len(second_half),
@@ -249,17 +271,22 @@ class LeakerTracker:
                 # 最终确认：移除嫌疑人身份组，再次验证
                 output_progress(0, 0, 1, f"【最终确认】移除 {leaker.display_name} 的身份组...", [leaker.display_name])
                 removed_roles = await self.remove_roles_from_members([leaker])
-                await asyncio.sleep(1)
+                still_leaked = False
 
-                output_progress(0, 0, 1, "【最终确认】发送测试消息...", [leaker.display_name])
-                await self.send_test_message()
+                try:
+                    await asyncio.sleep(1)
 
-                output_progress(0, 0, 1, f"【最终确认】等待泄露消息 ({self.timeout}秒)...", [leaker.display_name])
-                still_leaked = await self.wait_for_leak(timeout=self.timeout)
+                    output_progress(0, 0, 1, "【最终确认】发送测试消息...", [leaker.display_name])
+                    await self.send_test_message()
 
-                # 恢复身份组
-                output_progress(0, 0, 1, "【最终确认】恢复身份组...", [leaker.display_name])
-                await self.restore_roles(removed_roles)
+                    output_progress(0, 0, 1, f"【最终确认】等待泄露消息 ({self.timeout}秒)...", [leaker.display_name])
+                    still_leaked = await self.wait_for_leak(timeout=self.timeout)
+                except Exception as e:
+                    output_progress(0, 0, 1, f"【错误】最终确认过程出错: {e}", [leaker.display_name])
+                finally:
+                    # 无论如何都要恢复身份组
+                    output_progress(0, 0, 1, "【最终确认】恢复身份组...", [leaker.display_name])
+                    await self.restore_roles(removed_roles)
 
                 if still_leaked:
                     # 移除后仍然泄露，说明冤枉了

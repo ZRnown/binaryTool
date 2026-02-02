@@ -41,7 +41,7 @@
         "icons/icon.ico"
       ],
       "resources": [
-        "resources/tracker.exe"
+        "resources/*"
       ]
     },
     "security": {
