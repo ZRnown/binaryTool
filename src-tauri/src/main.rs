@@ -11,6 +11,7 @@ use std::env;
 static RUNNING: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 struct Config {
     token: String,
     server_id: String,
@@ -18,6 +19,10 @@ struct Config {
     target_channel_id: String,
     test_message: String,
     timeout: u32,
+    #[serde(default)]
+    webhook_url: String,
+    #[serde(default)]
+    send_channel_id: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -27,6 +32,8 @@ struct LeakerInfo {
     display_name: String,
     avatar: String,
     roles: Vec<String>,
+    #[serde(default)]
+    confirmed: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -35,6 +42,8 @@ struct SearchProgress {
     total: u32,
     remaining: u32,
     message: String,
+    #[serde(default)]
+    names: Vec<String>,
 }
 
 #[tauri::command]
@@ -54,7 +63,7 @@ async fn start_binary_search(
     // 获取Python脚本路径
     let script_path = if cfg!(debug_assertions) {
         // 开发模式：使用项目目录
-        std::path::PathBuf::from("python/tracker.py")
+        std::path::PathBuf::from("../python/tracker.py")
     } else {
         // 生产模式：使用资源目录
         app_handle.path_resolver()
@@ -103,11 +112,38 @@ fn stop_search() -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+async fn test_connection(token: String, app_handle: tauri::AppHandle) -> Result<String, String> {
+    let script_path = if cfg!(debug_assertions) {
+        std::path::PathBuf::from("../python/tracker.py")
+    } else {
+        app_handle.path_resolver()
+            .resolve_resource("python/tracker.py")
+            .ok_or("找不到Python脚本")?
+    };
+
+    let output = Command::new("python")
+        .arg(&script_path)
+        .arg("--test-connection")
+        .arg(&token)
+        .output()
+        .await
+        .map_err(|e| format!("启动Python失败: {}", e))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    if stdout.starts_with("CONNECTED:") {
+        Ok(stdout[10..].trim().to_string())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).to_string())
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             start_binary_search,
-            stop_search
+            stop_search,
+            test_connection
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

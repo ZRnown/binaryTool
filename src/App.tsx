@@ -1,7 +1,10 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/tauri";
-import { listen } from "@tauri-apps/api/event";
+import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import "./App.css";
+
+const STORAGE_KEY_CONFIG = "discord_tracker_config";
+const STORAGE_KEY_LOGS = "discord_tracker_logs";
 
 interface Config {
   token: string;
@@ -10,6 +13,8 @@ interface Config {
   targetChannelId: string;
   testMessage: string;
   timeout: number;
+  webhookUrl: string;
+  sendChannelId: string;
 }
 
 interface LeakerInfo {
@@ -18,6 +23,13 @@ interface LeakerInfo {
   displayName: string;
   avatar: string;
   roles: string[];
+  confirmed?: boolean;
+}
+
+interface TreeNode {
+  step: number;
+  names: string[];
+  direction?: "left" | "right";
 }
 
 interface SearchState {
@@ -27,26 +39,63 @@ interface SearchState {
   remainingUsers: number;
   logs: string[];
   leaker: LeakerInfo | null;
+  treeHistory: TreeNode[];
+}
+
+interface ConnectionState {
+  status: "disconnected" | "connecting" | "connected";
+  username: string;
 }
 
 function App() {
-  const [config, setConfig] = useState<Config>({
-    token: "",
-    serverId: "",
-    roleIds: [],
-    targetChannelId: "",
-    testMessage: "TEST_MESSAGE_" + Date.now(),
-    timeout: 10,
+  const unlistenRef = useRef<UnlistenFn | null>(null);
+
+  const [config, setConfig] = useState<Config>(() => {
+    const saved = localStorage.getItem(STORAGE_KEY_CONFIG);
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch {
+        return {
+          token: "",
+          serverId: "",
+          roleIds: [],
+          targetChannelId: "",
+          testMessage: "TEST_MESSAGE_" + Date.now(),
+          timeout: 10,
+          webhookUrl: "",
+          sendChannelId: "",
+        };
+      }
+    }
+    return {
+      token: "",
+      serverId: "",
+      roleIds: [],
+      targetChannelId: "",
+      testMessage: "TEST_MESSAGE_" + Date.now(),
+      timeout: 10,
+      webhookUrl: "",
+      sendChannelId: "",
+    };
   });
 
   const [roleInput, setRoleInput] = useState("");
-  const [searchState, setSearchState] = useState<SearchState>({
-    phase: "idle",
-    currentStep: 0,
-    totalSteps: 0,
-    remainingUsers: 0,
-    logs: [],
-    leaker: null,
+  const [connection, setConnection] = useState<ConnectionState>({
+    status: "disconnected",
+    username: "",
+  });
+  const [searchState, setSearchState] = useState<SearchState>(() => {
+    const savedLogs = localStorage.getItem(STORAGE_KEY_LOGS);
+    return {
+      phase: "idle" as const,
+      currentStep: 0,
+      totalSteps: 0,
+      remainingUsers: 0,
+      logs: savedLogs ? JSON.parse(savedLogs) : [],
+      leaker: null,
+      treeHistory: [],
+    };
   });
 
   const addLog = useCallback((message: string) => {
@@ -56,6 +105,48 @@ function App() {
       logs: [...prev.logs, `[${timestamp}] ${message}`],
     }));
   }, []);
+
+  // 组件卸载时清理监听器
+  useEffect(() => {
+    return () => {
+      if (unlistenRef.current) {
+        unlistenRef.current();
+      }
+    };
+  }, []);
+
+  // 保存配置到localStorage
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_CONFIG, JSON.stringify(config));
+  }, [config]);
+
+  // 保存日志到localStorage
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_LOGS, JSON.stringify(searchState.logs));
+  }, [searchState.logs]);
+
+  const connectAccount = async () => {
+    if (!config.token) {
+      addLog("错误: 请输入Token");
+      return;
+    }
+    setConnection({ status: "connecting", username: "" });
+    addLog("正在连接Discord...");
+
+    try {
+      const result = await invoke<string>("test_connection", { token: config.token });
+      setConnection({ status: "connected", username: result });
+      addLog(`已连接: ${result}`);
+    } catch (error) {
+      setConnection({ status: "disconnected", username: "" });
+      addLog(`连接失败: ${error}`);
+    }
+  };
+
+  const disconnectAccount = () => {
+    setConnection({ status: "disconnected", username: "" });
+    addLog("已断开连接");
+  };
 
   const addRole = () => {
     if (roleInput.trim() && !config.roleIds.includes(roleInput.trim())) {
@@ -75,7 +166,11 @@ function App() {
   };
 
   const startSearch = async () => {
-    if (!config.token || !config.serverId || config.roleIds.length === 0 || !config.targetChannelId) {
+    if (connection.status !== "connected") {
+      addLog("错误: 请先连接账号");
+      return;
+    }
+    if (!config.serverId || config.roleIds.length === 0 || !config.targetChannelId) {
       addLog("错误: 请填写所有必填字段");
       return;
     }
@@ -87,19 +182,43 @@ function App() {
       remainingUsers: 0,
       logs: [],
       leaker: null,
+      treeHistory: [],
     });
 
     addLog("开始二分搜索...");
 
     try {
-      await listen("search-progress", (event: any) => {
+      // 清理之前的监听器
+      if (unlistenRef.current) {
+        unlistenRef.current();
+        unlistenRef.current = null;
+      }
+
+      // 设置新的监听器
+      unlistenRef.current = await listen("search-progress", (event: any) => {
         const data = event.payload;
-        setSearchState((prev) => ({
-          ...prev,
-          currentStep: data.step,
-          totalSteps: data.total,
-          remainingUsers: data.remaining,
-        }));
+        setSearchState((prev) => {
+          // 更新树状历史
+          let newTreeHistory = [...prev.treeHistory];
+          if (data.names && data.names.length > 0 && data.step > 0) {
+            const existingIndex = newTreeHistory.findIndex(n => n.step === data.step);
+            if (existingIndex === -1) {
+              newTreeHistory.push({
+                step: data.step,
+                names: data.names,
+                direction: data.message.includes("后半部分") ? "right" :
+                          data.message.includes("前半部分") ? "left" : undefined
+              });
+            }
+          }
+          return {
+            ...prev,
+            currentStep: data.step,
+            totalSteps: data.total,
+            remainingUsers: data.remaining,
+            treeHistory: newTreeHistory,
+          };
+        });
         addLog(data.message);
       });
 
@@ -158,12 +277,25 @@ function App() {
 
           <div className="form-group">
             <label>Discord Token</label>
-            <input
-              type="password"
-              placeholder="输入你的Discord账号Token"
-              value={config.token}
-              onChange={(e) => setConfig((prev) => ({ ...prev, token: e.target.value }))}
-            />
+            <div className="token-input-group">
+              <input
+                type="password"
+                placeholder="输入你的Discord账号Token"
+                value={config.token}
+                onChange={(e) => setConfig((prev) => ({ ...prev, token: e.target.value }))}
+                disabled={connection.status === "connected"}
+              />
+              {connection.status === "disconnected" ? (
+                <button className="btn-connect" onClick={connectAccount}>连接</button>
+              ) : connection.status === "connecting" ? (
+                <button className="btn-connect" disabled>连接中...</button>
+              ) : (
+                <button className="btn-disconnect" onClick={disconnectAccount}>断开</button>
+              )}
+            </div>
+            {connection.status === "connected" && (
+              <div className="connection-status">已连接: {connection.username}</div>
+            )}
           </div>
 
           <div className="form-group">
@@ -205,6 +337,26 @@ function App() {
               placeholder="输入盗转群的频道ID"
               value={config.targetChannelId}
               onChange={(e) => setConfig((prev) => ({ ...prev, targetChannelId: e.target.value }))}
+            />
+          </div>
+
+          <div className="form-group">
+            <label>发送消息频道 ID</label>
+            <input
+              type="text"
+              placeholder="输入你服务器中发送测试消息的频道ID"
+              value={config.sendChannelId}
+              onChange={(e) => setConfig((prev) => ({ ...prev, sendChannelId: e.target.value }))}
+            />
+          </div>
+
+          <div className="form-group">
+            <label>Webhook URL (可选)</label>
+            <input
+              type="text"
+              placeholder="留空则使用账号发送消息"
+              value={config.webhookUrl}
+              onChange={(e) => setConfig((prev) => ({ ...prev, webhookUrl: e.target.value }))}
             />
           </div>
 
@@ -289,23 +441,46 @@ function App() {
           <div className="binary-visual">
             <h3>二分搜索可视化</h3>
             <div className="binary-tree">
-              {searchState.remainingUsers > 0 && (
-                <div className="tree-node active">
-                  <span>{searchState.remainingUsers}</span>
+              {searchState.treeHistory.map((node, index) => (
+                <div key={index} className="tree-level">
+                  <div className="tree-level-label">第 {node.step} 轮</div>
+                  <div className="tree-level-nodes">
+                    {node.names.map((name, i) => (
+                      <div
+                        key={i}
+                        className={`tree-node ${index === searchState.treeHistory.length - 1 ? 'active' : ''}`}
+                      >
+                        {name}
+                      </div>
+                    ))}
+                  </div>
+                  {index < searchState.treeHistory.length - 1 && (
+                    <div className="tree-arrow">↓</div>
+                  )}
                 </div>
+              ))}
+              {searchState.leaker && (
+                <div className="tree-level final">
+                  <div className="tree-level-label">最终结果</div>
+                  <div className="tree-level-nodes">
+                    <div className={`tree-node final ${searchState.leaker.confirmed ? 'confirmed' : 'unconfirmed'}`}>
+                      {searchState.leaker.displayName}
+                      <span className="confirm-badge">
+                        {searchState.leaker.confirmed ? '✓ 已确认' : '? 未确认'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+              {searchState.treeHistory.length === 0 && !searchState.leaker && (
+                <div className="tree-empty">等待搜索开始...</div>
               )}
             </div>
           </div>
-        </div>
 
-        <div className="panel result-panel">
-          <h2 className="panel-title">
-            <span className="icon">🎯</span>
-            追踪结果
-          </h2>
-
-          {searchState.leaker ? (
-            <div className="leaker-card">
+          {/* 追踪结果整合到状态面板 */}
+          {searchState.leaker && (
+            <div className={`leaker-card ${searchState.leaker.confirmed ? 'confirmed' : 'unconfirmed'}`}>
               <div className="leaker-avatar">
                 {searchState.leaker.avatar ? (
                   <img src={searchState.leaker.avatar} alt="avatar" />
@@ -314,6 +489,12 @@ function App() {
                 )}
               </div>
               <div className="leaker-info">
+                <div className="leaker-status">
+                  {searchState.leaker.confirmed
+                    ? <span className="status-confirmed">已确认是泄露者</span>
+                    : <span className="status-unconfirmed">可能被冤枉</span>
+                  }
+                </div>
                 <div className="leaker-name">{searchState.leaker.displayName}</div>
                 <div className="leaker-username">@{searchState.leaker.username}</div>
                 <div className="leaker-id">ID: {searchState.leaker.id}</div>
@@ -324,12 +505,6 @@ function App() {
                   ))}
                 </div>
               </div>
-            </div>
-          ) : (
-            <div className="no-result">
-              {searchState.phase === "not_found"
-                ? "未在指定用户中找到泄露者"
-                : "等待追踪完成..."}
             </div>
           )}
         </div>
