@@ -2,8 +2,15 @@ name: Build Windows Release
 
 on:
   push:
+    branches:
+      - main
+      - master
     tags:
       - 'v*'
+  pull_request:
+    branches:
+      - main
+      - master
   workflow_dispatch:
 
 jobs:
@@ -37,15 +44,15 @@ jobs:
         run: npm ci
 
       - name: Install Python dependencies
-        run: pip install -r python/requirements.txt
+        run: pip install discord.py-self aiohttp
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'Discord泄露者追踪器 ${{ github.ref_name }}'
-          releaseBody: '查看更新日志'
-          releaseDraft: true
-          prerelease: false
+          name: windows-build
+          path: src-tauri/target/release/bundle/msi/*.msi
