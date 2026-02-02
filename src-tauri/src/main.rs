@@ -129,9 +129,9 @@ fn stop_search() -> Result<(), String> {
 #[tauri::command]
 async fn test_connection(
     token: String,
-    proxy_enabled: bool,
-    proxy_host: String,
-    proxy_port: u16,
+    proxyEnabled: bool,
+    proxyHost: String,
+    proxyPort: u16,
     app_handle: tauri::AppHandle
 ) -> Result<String, String> {
     let script_path = if cfg!(debug_assertions) {
@@ -147,9 +147,9 @@ async fn test_connection(
         .arg("--test-connection")
         .arg(&token);
 
-    if proxy_enabled {
+    if proxyEnabled {
         cmd.arg("--proxy")
-            .arg(format!("{}:{}", proxy_host, proxy_port));
+            .arg(format!("{}:{}", proxyHost, proxyPort));
     }
 
     let output = cmd.output()

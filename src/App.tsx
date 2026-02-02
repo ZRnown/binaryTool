@@ -54,27 +54,7 @@ function App() {
   const unlistenRef = useRef<UnlistenFn | null>(null);
 
   const [config, setConfig] = useState<Config>(() => {
-    const saved = localStorage.getItem(STORAGE_KEY_CONFIG);
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch {
-        return {
-          token: "",
-          serverId: "",
-          roleIds: [],
-          targetChannelId: "",
-          testMessage: "TEST_MESSAGE_" + Date.now(),
-          timeout: 10,
-          webhookUrl: "",
-          sendChannelId: "",
-          proxyEnabled: false,
-          proxyHost: "127.0.0.1",
-          proxyPort: 7897,
-        };
-      }
-    }
-    return {
+    const defaultConfig: Config = {
       token: "",
       serverId: "",
       roleIds: [],
@@ -83,7 +63,20 @@ function App() {
       timeout: 10,
       webhookUrl: "",
       sendChannelId: "",
+      proxyEnabled: false,
+      proxyHost: "127.0.0.1",
+      proxyPort: 7897,
     };
+    const saved = localStorage.getItem(STORAGE_KEY_CONFIG);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        return { ...defaultConfig, ...parsed };
+      } catch {
+        return defaultConfig;
+      }
+    }
+    return defaultConfig;
   });
 
   const [roleInput, setRoleInput] = useState("");
