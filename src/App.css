@@ -73,6 +73,21 @@
   font-size: 16px;
 }
 
+.btn-clear-log {
+  margin-left: auto;
+  padding: 4px 10px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.btn-clear-log:hover {
+  background: var(--border-color);
+}
+
 .form-group {
   margin-bottom: 14px;
 }

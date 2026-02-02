@@ -513,6 +513,9 @@ function App() {
           <h2 className="panel-title">
             <span className="icon">📝</span>
             运行日志
+            <button className="btn-clear-log" onClick={() => setSearchState(prev => ({ ...prev, logs: [] }))}>
+              清除日志
+            </button>
           </h2>
           <div className="log-container">
             {searchState.logs.length === 0 ? (

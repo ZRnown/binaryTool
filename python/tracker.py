@@ -297,11 +297,15 @@ async def test_connection(token: str):
         # 使用 loop.call_soon 来安排关闭，避免阻塞
         asyncio.get_event_loop().call_soon(lambda: asyncio.create_task(client.close()))
 
+    @client.event
+    async def on_connect():
+        print("STATUS:正在建立连接...", flush=True)
+
     try:
-        await asyncio.wait_for(client.start(token), timeout=30)
+        await asyncio.wait_for(client.start(token), timeout=60)
     except asyncio.TimeoutError:
         if not result["connected"]:
-            print("连接超时", file=sys.stderr)
+            print("连接超时（60秒），请检查网络或Token", file=sys.stderr)
             sys.exit(1)
     except discord.LoginFailure as e:
         print(f"登录失败: Token无效 - {e}", file=sys.stderr)

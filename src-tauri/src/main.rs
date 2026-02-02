@@ -131,10 +131,20 @@ async fn test_connection(token: String, app_handle: tauri::AppHandle) -> Result<
         .map_err(|e| format!("启动Python失败: {}", e))?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    if stdout.starts_with("CONNECTED:") {
-        Ok(stdout[10..].trim().to_string())
+
+    // 查找包含 CONNECTED: 的行
+    for line in stdout.lines() {
+        if line.starts_with("CONNECTED:") {
+            return Ok(line[10..].trim().to_string());
+        }
+    }
+
+    // 没找到 CONNECTED，返回错误
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if stderr.is_empty() {
+        Err(format!("连接失败，stdout: {}", stdout))
     } else {
-        Err(String::from_utf8_lossy(&output.stderr).to_string())
+        Err(stderr.to_string())
     }
 }
 
