@@ -40,7 +40,9 @@
         "icons/icon.icns",
         "icons/icon.ico"
       ],
-      "resources": ["../python/*"]
+      "resources": {
+        "../python/tracker.py": "python/tracker.py"
+      }
     },
     "security": {
       "csp": null

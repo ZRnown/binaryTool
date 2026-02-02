@@ -80,9 +80,20 @@ async fn start_binary_search(
         std::path::PathBuf::from("../python/tracker.py")
     } else {
         // 生产模式：使用资源目录
-        app_handle.path_resolver()
+        let path = app_handle.path_resolver()
             .resolve_resource("python/tracker.py")
-            .ok_or("找不到Python脚本")?
+            .ok_or("找不到Python脚本")?;
+        // Windows上移除 \\?\ 前缀
+        #[cfg(windows)]
+        let path = {
+            let path_str = path.to_string_lossy();
+            if path_str.starts_with("\\\\?\\") {
+                std::path::PathBuf::from(&path_str[4..])
+            } else {
+                path
+            }
+        };
+        path
     };
 
     let mut child = Command::new("python")
