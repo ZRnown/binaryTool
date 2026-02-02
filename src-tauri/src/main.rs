@@ -3,12 +3,35 @@
 use serde::{Deserialize, Serialize};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::path::PathBuf;
 use tauri::Manager;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
-use std::env;
 
 static RUNNING: AtomicBool = AtomicBool::new(false);
+
+/// 获取Python脚本路径，处理Windows长路径前缀
+fn get_script_path(app_handle: &tauri::AppHandle) -> Result<PathBuf, String> {
+    if cfg!(debug_assertions) {
+        // 开发模式：使用项目目录
+        Ok(PathBuf::from("../python/tracker.py"))
+    } else {
+        // 生产模式：使用资源目录
+        let path = app_handle.path_resolver()
+            .resolve_resource("python/tracker.py")
+            .ok_or("找不到Python脚本")?;
+
+        // 处理路径，移除Windows长路径前缀
+        let path_str = path.to_string_lossy().to_string();
+        let clean_path = if path_str.starts_with("\\\\?\\") {
+            PathBuf::from(&path_str[4..])
+        } else {
+            path
+        };
+
+        Ok(clean_path)
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -74,27 +97,7 @@ async fn start_binary_search(
     let config_json = serde_json::to_string(&config)
         .map_err(|e| e.to_string())?;
 
-    // 获取Python脚本路径
-    let script_path = if cfg!(debug_assertions) {
-        // 开发模式：使用项目目录
-        std::path::PathBuf::from("../python/tracker.py")
-    } else {
-        // 生产模式：使用资源目录
-        let path = app_handle.path_resolver()
-            .resolve_resource("python/tracker.py")
-            .ok_or("找不到Python脚本")?;
-        // Windows上移除 \\?\ 前缀
-        #[cfg(windows)]
-        let path = {
-            let path_str = path.to_string_lossy();
-            if path_str.starts_with("\\\\?\\") {
-                std::path::PathBuf::from(&path_str[4..])
-            } else {
-                path
-            }
-        };
-        path
-    };
+    let script_path = get_script_path(&app_handle)?;
 
     let mut child = Command::new("python")
         .arg(&script_path)
@@ -145,13 +148,7 @@ async fn test_connection(
     proxyPort: u16,
     app_handle: tauri::AppHandle
 ) -> Result<String, String> {
-    let script_path = if cfg!(debug_assertions) {
-        std::path::PathBuf::from("../python/tracker.py")
-    } else {
-        app_handle.path_resolver()
-            .resolve_resource("python/tracker.py")
-            .ok_or("找不到Python脚本")?
-    };
+    let script_path = get_script_path(&app_handle)?;
 
     let mut cmd = Command::new("python");
     cmd.arg(&script_path)
