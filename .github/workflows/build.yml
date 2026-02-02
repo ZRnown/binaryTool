@@ -49,7 +49,9 @@ jobs:
         run: |
           cd python
           pyinstaller --onefile --name tracker tracker.py
+          mkdir ..\src-tauri\resources
           copy dist\tracker.exe ..\src-tauri\resources\tracker.exe
+          dir ..\src-tauri\resources
         shell: cmd
 
       - name: Build Tauri app
