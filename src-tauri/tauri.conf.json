@@ -41,7 +41,7 @@
         "icons/icon.ico"
       ],
       "resources": [
-        "../python/*"
+        "resources/tracker.exe"
       ]
     },
     "security": {

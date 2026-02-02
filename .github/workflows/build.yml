@@ -43,7 +43,14 @@ jobs:
         run: npm install
 
       - name: Install Python dependencies
-        run: pip install discord.py-self aiohttp
+        run: pip install discord.py-self aiohttp pyinstaller
+
+      - name: Build Python executable
+        run: |
+          cd python
+          pyinstaller --onefile --name tracker tracker.py
+          copy dist\tracker.exe ..\src-tauri\resources\tracker.exe
+        shell: cmd
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0

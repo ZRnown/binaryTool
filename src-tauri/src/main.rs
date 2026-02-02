@@ -10,16 +10,16 @@ use tokio::process::Command;
 
 static RUNNING: AtomicBool = AtomicBool::new(false);
 
-/// 获取Python脚本路径，处理Windows长路径前缀
-fn get_script_path(app_handle: &tauri::AppHandle) -> Result<PathBuf, String> {
+/// 获取tracker可执行文件路径，处理Windows长路径前缀
+fn get_tracker_path(app_handle: &tauri::AppHandle) -> Result<PathBuf, String> {
     if cfg!(debug_assertions) {
-        // 开发模式：使用项目目录
+        // 开发模式：使用Python脚本
         Ok(PathBuf::from("../python/tracker.py"))
     } else {
-        // 生产模式：使用资源目录
+        // 生产模式：使用打包的exe
         let path = app_handle.path_resolver()
-            .resolve_resource("tracker.py")
-            .ok_or("找不到Python脚本")?;
+            .resolve_resource("tracker.exe")
+            .ok_or("找不到tracker.exe")?;
 
         // 处理路径，移除Windows长路径前缀
         let path_str = path.to_string_lossy().to_string();
@@ -97,16 +97,29 @@ async fn start_binary_search(
     let config_json = serde_json::to_string(&config)
         .map_err(|e| e.to_string())?;
 
-    let script_path = get_script_path(&app_handle)?;
+    let tracker_path = get_tracker_path(&app_handle)?;
 
-    let mut child = Command::new("python")
-        .arg(&script_path)
-        .arg("--config")
-        .arg(&config_json)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("启动Python失败: {}", e))?;
+    // 根据模式选择命令
+    let mut child = if cfg!(debug_assertions) {
+        // 开发模式：使用 python 运行脚本
+        Command::new("python")
+            .arg(&tracker_path)
+            .arg("--config")
+            .arg(&config_json)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("启动Python失败: {}", e))?
+    } else {
+        // 生产模式：直接运行 exe
+        Command::new(&tracker_path)
+            .arg("--config")
+            .arg(&config_json)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("启动tracker失败: {}", e))?
+    };
 
     let stdout = child.stdout.take()
         .ok_or("无法获取stdout")?;
@@ -148,21 +161,39 @@ async fn test_connection(
     proxyPort: u16,
     app_handle: tauri::AppHandle
 ) -> Result<String, String> {
-    let script_path = get_script_path(&app_handle)?;
+    let tracker_path = get_tracker_path(&app_handle)?;
 
-    let mut cmd = Command::new("python");
-    cmd.arg(&script_path)
-        .arg("--test-connection")
-        .arg(&token);
+    // 根据模式选择命令
+    let output = if cfg!(debug_assertions) {
+        // 开发模式：使用 python 运行脚本
+        let mut cmd = Command::new("python");
+        cmd.arg(&tracker_path)
+            .arg("--test-connection")
+            .arg(&token);
 
-    if proxyEnabled {
-        cmd.arg("--proxy")
-            .arg(format!("{}:{}", proxyHost, proxyPort));
-    }
+        if proxyEnabled {
+            cmd.arg("--proxy")
+                .arg(format!("{}:{}", proxyHost, proxyPort));
+        }
 
-    let output = cmd.output()
-        .await
-        .map_err(|e| format!("启动Python失败: {}", e))?;
+        cmd.output()
+            .await
+            .map_err(|e| format!("启动Python失败: {}", e))?
+    } else {
+        // 生产模式：直接运行 exe
+        let mut cmd = Command::new(&tracker_path);
+        cmd.arg("--test-connection")
+            .arg(&token);
+
+        if proxyEnabled {
+            cmd.arg("--proxy")
+                .arg(format!("{}:{}", proxyHost, proxyPort));
+        }
+
+        cmd.output()
+            .await
+            .map_err(|e| format!("启动tracker失败: {}", e))?
+    };
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
