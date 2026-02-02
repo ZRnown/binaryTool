@@ -18,7 +18,7 @@ fn get_script_path(app_handle: &tauri::AppHandle) -> Result<PathBuf, String> {
     } else {
         // 生产模式：使用资源目录
         let path = app_handle.path_resolver()
-            .resolve_resource("python/tracker.py")
+            .resolve_resource("tracker.py")
             .ok_or("找不到Python脚本")?;
 
         // 处理路径，移除Windows长路径前缀
