@@ -15,6 +15,9 @@ interface Config {
   timeout: number;
   webhookUrl: string;
   sendChannelId: string;
+  proxyEnabled: boolean;
+  proxyHost: string;
+  proxyPort: number;
 }
 
 interface LeakerInfo {
@@ -65,6 +68,9 @@ function App() {
           timeout: 10,
           webhookUrl: "",
           sendChannelId: "",
+          proxyEnabled: false,
+          proxyHost: "127.0.0.1",
+          proxyPort: 7897,
         };
       }
     }
@@ -134,7 +140,12 @@ function App() {
     addLog("正在连接Discord...");
 
     try {
-      const result = await invoke<string>("test_connection", { token: config.token });
+      const result = await invoke<string>("test_connection", {
+        token: config.token,
+        proxyEnabled: config.proxyEnabled,
+        proxyHost: config.proxyHost,
+        proxyPort: config.proxyPort,
+      });
       setConnection({ status: "connected", username: result });
       addLog(`已连接: ${result}`);
     } catch (error) {
@@ -380,6 +391,33 @@ function App() {
               max={120}
               onChange={(e) => setConfig((prev) => ({ ...prev, timeout: parseInt(e.target.value) || 10 }))}
             />
+          </div>
+
+          <div className="form-group">
+            <label>
+              <input
+                type="checkbox"
+                checked={config.proxyEnabled}
+                onChange={(e) => setConfig((prev) => ({ ...prev, proxyEnabled: e.target.checked }))}
+              />
+              {" "}启用代理
+            </label>
+            {config.proxyEnabled && (
+              <div className="proxy-inputs">
+                <input
+                  type="text"
+                  placeholder="代理地址"
+                  value={config.proxyHost}
+                  onChange={(e) => setConfig((prev) => ({ ...prev, proxyHost: e.target.value }))}
+                />
+                <input
+                  type="number"
+                  placeholder="端口"
+                  value={config.proxyPort}
+                  onChange={(e) => setConfig((prev) => ({ ...prev, proxyPort: parseInt(e.target.value) || 7897 }))}
+                />
+              </div>
+            )}
           </div>
 
           <div className="button-group">

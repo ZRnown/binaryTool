@@ -23,6 +23,20 @@ struct Config {
     webhook_url: String,
     #[serde(default)]
     send_channel_id: String,
+    #[serde(default)]
+    proxy_enabled: bool,
+    #[serde(default = "default_proxy_host")]
+    proxy_host: String,
+    #[serde(default = "default_proxy_port")]
+    proxy_port: u16,
+}
+
+fn default_proxy_host() -> String {
+    "127.0.0.1".to_string()
+}
+
+fn default_proxy_port() -> u16 {
+    7897
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -113,7 +127,13 @@ fn stop_search() -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn test_connection(token: String, app_handle: tauri::AppHandle) -> Result<String, String> {
+async fn test_connection(
+    token: String,
+    proxy_enabled: bool,
+    proxy_host: String,
+    proxy_port: u16,
+    app_handle: tauri::AppHandle
+) -> Result<String, String> {
     let script_path = if cfg!(debug_assertions) {
         std::path::PathBuf::from("../python/tracker.py")
     } else {
@@ -122,11 +142,17 @@ async fn test_connection(token: String, app_handle: tauri::AppHandle) -> Result<
             .ok_or("找不到Python脚本")?
     };
 
-    let output = Command::new("python")
-        .arg(&script_path)
+    let mut cmd = Command::new("python");
+    cmd.arg(&script_path)
         .arg("--test-connection")
-        .arg(&token)
-        .output()
+        .arg(&token);
+
+    if proxy_enabled {
+        cmd.arg("--proxy")
+            .arg(format!("{}:{}", proxy_host, proxy_port));
+    }
+
+    let output = cmd.output()
         .await
         .map_err(|e| format!("启动Python失败: {}", e))?;
 

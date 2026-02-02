@@ -43,8 +43,15 @@ class LeakerTracker:
         self.webhook_url = config.get("webhookUrl", "")
         self.send_channel_id = int(config["sendChannelId"]) if config.get("sendChannelId") else None
 
+        # 代理设置
+        proxy_url = None
+        if config.get("proxyEnabled"):
+            proxy_host = config.get("proxyHost", "127.0.0.1")
+            proxy_port = config.get("proxyPort", 7897)
+            proxy_url = f"http://{proxy_host}:{proxy_port}"
+
         # discord.py-self 不需要 intents，用户账号可以直接访问所有数据
-        self.client = discord.Client()
+        self.client = discord.Client(proxy=proxy_url)
         self.guild: Optional[discord.Guild] = None
         self.target_channel: Optional[discord.TextChannel] = None
         self.send_channel: Optional[discord.TextChannel] = None
@@ -284,9 +291,11 @@ class LeakerTracker:
         await self.client.start(self.token)
 
 
-async def test_connection(token: str):
+async def test_connection(token: str, proxy: str = None):
     """测试Token连接"""
-    client = discord.Client()
+    # 设置代理
+    proxy_url = f"http://{proxy}" if proxy else None
+    client = discord.Client(proxy=proxy_url)
     result = {"connected": False, "username": ""}
 
     @client.event
@@ -326,11 +335,12 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=False)
     parser.add_argument("--test-connection", dest="test_token", required=False)
+    parser.add_argument("--proxy", required=False, help="代理地址，格式: host:port")
     args = parser.parse_args()
 
     if args.test_token:
         # 测试连接模式
-        asyncio.run(test_connection(args.test_token))
+        asyncio.run(test_connection(args.test_token, args.proxy))
     elif args.config:
         config = json.loads(args.config)
         tracker = LeakerTracker(config)

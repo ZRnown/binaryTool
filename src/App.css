@@ -119,6 +119,25 @@
   color: var(--text-secondary);
 }
 
+.form-group input[type="checkbox"] {
+  width: auto;
+  margin-right: 6px;
+}
+
+.proxy-inputs {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.proxy-inputs input:first-child {
+  flex: 2;
+}
+
+.proxy-inputs input:last-child {
+  flex: 1;
+}
+
 .token-input-group {
   display: flex;
   gap: 8px;
