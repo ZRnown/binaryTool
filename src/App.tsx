@@ -51,6 +51,11 @@ interface ConnectionState {
   username: string;
 }
 
+interface ListenerConnectionState {
+  status: "disconnected" | "connecting" | "connected";
+  username: string;
+}
+
 function App() {
   const unlistenRef = useRef<UnlistenFn | null>(null);
 
@@ -83,6 +88,10 @@ function App() {
 
   const [roleInput, setRoleInput] = useState("");
   const [connection, setConnection] = useState<ConnectionState>({
+    status: "disconnected",
+    username: "",
+  });
+  const [listenerConnection, setListenerConnection] = useState<ListenerConnectionState>({
     status: "disconnected",
     username: "",
   });
@@ -154,6 +163,34 @@ function App() {
     addLog("已断开连接");
   };
 
+  const connectListenerAccount = async () => {
+    if (!config.listenerToken) {
+      addLog("错误: 请输入监听账号Token");
+      return;
+    }
+    setListenerConnection({ status: "connecting", username: "" });
+    addLog("正在连接监听账号...");
+
+    try {
+      const result = await invoke<string>("test_connection", {
+        token: config.listenerToken,
+        proxyEnabled: config.proxyEnabled,
+        proxyHost: config.proxyHost,
+        proxyPort: config.proxyPort,
+      });
+      setListenerConnection({ status: "connected", username: result });
+      addLog(`监听账号已连接: ${result}`);
+    } catch (error) {
+      setListenerConnection({ status: "disconnected", username: "" });
+      addLog(`监听账号连接失败: ${error}`);
+    }
+  };
+
+  const disconnectListenerAccount = () => {
+    setListenerConnection({ status: "disconnected", username: "" });
+    addLog("监听账号已断开连接");
+  };
+
   const addRole = () => {
     if (roleInput.trim() && !config.roleIds.includes(roleInput.trim())) {
       setConfig((prev) => ({
@@ -173,7 +210,11 @@ function App() {
 
   const startSearch = async () => {
     if (connection.status !== "connected") {
-      addLog("错误: 请先连接账号");
+      addLog("错误: 请先连接发送账号");
+      return;
+    }
+    if (config.listenerToken && listenerConnection.status !== "connected") {
+      addLog("错误: 请先连接监听账号");
       return;
     }
     if (!config.serverId || config.roleIds.length === 0 || !config.targetChannelId) {
@@ -306,12 +347,27 @@ function App() {
 
           <div className="form-group">
             <label>监听账号 Token (可选)</label>
-            <input
-              type="password"
-              placeholder="留空则使用上面的账号监听"
-              value={config.listenerToken}
-              onChange={(e) => setConfig((prev) => ({ ...prev, listenerToken: e.target.value }))}
-            />
+            <div className="token-input-group">
+              <input
+                type="password"
+                placeholder="留空则使用上面的账号监听"
+                value={config.listenerToken}
+                onChange={(e) => setConfig((prev) => ({ ...prev, listenerToken: e.target.value }))}
+                disabled={listenerConnection.status === "connected"}
+              />
+              {config.listenerToken && (
+                listenerConnection.status === "disconnected" ? (
+                  <button className="btn-connect" onClick={connectListenerAccount}>连接</button>
+                ) : listenerConnection.status === "connecting" ? (
+                  <button className="btn-connect" disabled>连接中...</button>
+                ) : (
+                  <button className="btn-disconnect" onClick={disconnectListenerAccount}>断开</button>
+                )
+              )}
+            </div>
+            {listenerConnection.status === "connected" && (
+              <div className="connection-status">监听账号已连接: {listenerConnection.username}</div>
+            )}
             <div className="form-hint">用于监听盗转群消息的账号，不填则使用发送账号</div>
           </div>
 
