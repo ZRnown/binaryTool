@@ -8,6 +8,7 @@ const STORAGE_KEY_LOGS = "discord_tracker_logs";
 
 interface Config {
   token: string;
+  listenerToken: string;
   serverId: string;
   roleIds: string[];
   targetChannelId: string;
@@ -56,6 +57,7 @@ function App() {
   const [config, setConfig] = useState<Config>(() => {
     const defaultConfig: Config = {
       token: "",
+      listenerToken: "",
       serverId: "",
       roleIds: [],
       targetChannelId: "",
@@ -300,6 +302,17 @@ function App() {
             {connection.status === "connected" && (
               <div className="connection-status">已连接: {connection.username}</div>
             )}
+          </div>
+
+          <div className="form-group">
+            <label>监听账号 Token (可选)</label>
+            <input
+              type="password"
+              placeholder="留空则使用上面的账号监听"
+              value={config.listenerToken}
+              onChange={(e) => setConfig((prev) => ({ ...prev, listenerToken: e.target.value }))}
+            />
+            <div className="form-hint">用于监听盗转群消息的账号，不填则使用发送账号</div>
           </div>
 
           <div className="form-group">

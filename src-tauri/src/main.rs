@@ -68,6 +68,8 @@ fn get_tracker_path(app_handle: &tauri::AppHandle) -> Result<PathBuf, String> {
 #[serde(rename_all = "camelCase")]
 struct Config {
     token: String,
+    #[serde(default)]
+    listener_token: String,
     server_id: String,
     role_ids: Vec<String>,
     target_channel_id: String,

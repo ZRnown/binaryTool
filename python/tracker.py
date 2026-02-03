@@ -35,6 +35,7 @@ class LeakerTracker:
 
     def __init__(self, config: Dict[str, Any]):
         self.token = config["token"]
+        self.listener_token = config.get("listenerToken", "") or self.token  # 如果没有监听Token，使用发送Token
         self.server_id = int(config["serverId"])
         self.role_ids = [int(r) for r in config["roleIds"]]
         self.target_channel_id = int(config["targetChannelId"])
@@ -50,14 +51,35 @@ class LeakerTracker:
             proxy_port = config.get("proxyPort", 7897)
             proxy_url = f"http://{proxy_host}:{proxy_port}"
 
-        # discord.py-self 不需要 intents，用户账号可以直接访问所有数据
+        # 发送账号客户端
         self.client = discord.Client(proxy=proxy_url)
+
+        # 监听账号客户端（如果使用不同的Token）
+        self.use_separate_listener = self.listener_token != self.token
+        if self.use_separate_listener:
+            self.listener_client = discord.Client(proxy=proxy_url)
+        else:
+            self.listener_client = self.client
+
         self.guild: Optional[discord.Guild] = None
         self.target_channel: Optional[discord.TextChannel] = None
         self.send_channel: Optional[discord.TextChannel] = None
         self.members_with_roles: List[discord.Member] = []
         self.found_leaker: Optional[discord.Member] = None
         self.message_detected = False
+        self.listener_ready = False
+
+    async def close_all_clients(self):
+        """关闭所有客户端"""
+        try:
+            await self.close_all_clients()
+        except:
+            pass
+        if self.use_separate_listener:
+            try:
+                await self.listener_client.close()
+            except:
+                pass
 
     async def get_members_with_roles(self) -> List[discord.Member]:
         """获取拥有指定身份组的所有成员"""
@@ -115,8 +137,9 @@ class LeakerTracker:
             return self.test_message in content
 
         try:
+            # 使用监听客户端等待消息
             await asyncio.wait_for(
-                self.client.wait_for('message', check=check_message),
+                self.listener_client.wait_for('message', check=check_message),
                 timeout=timeout
             )
             self.message_detected = True
@@ -231,14 +254,35 @@ class LeakerTracker:
 
     async def run(self):
         """运行追踪器"""
+        # 如果使用单独的监听账号，先启动监听客户端
+        if self.use_separate_listener:
+            @self.listener_client.event
+            async def on_ready():
+                output_progress(0, 0, 0, f"监听账号已登录: {self.listener_client.user}")
+                self.listener_ready = True
+
+            # 在后台启动监听客户端
+            asyncio.create_task(self.listener_client.start(self.listener_token))
+            output_progress(0, 0, 0, "正在启动监听账号...")
+            # 等待监听客户端就绪
+            for _ in range(30):  # 最多等待30秒
+                if self.listener_ready:
+                    break
+                await asyncio.sleep(1)
+            if not self.listener_ready:
+                output_progress(0, 0, 0, "错误: 监听账号登录超时")
+                return
+        else:
+            self.listener_ready = True
+
         @self.client.event
         async def on_ready():
-            output_progress(0, 0, 0, f"已登录: {self.client.user}")
+            output_progress(0, 0, 0, f"发送账号已登录: {self.client.user}")
 
             self.guild = self.client.get_guild(self.server_id)
             if not self.guild:
                 output_progress(0, 0, 0, "错误: 找不到服务器")
-                await self.client.close()
+                await self.close_all_clients()
                 return
 
             output_progress(0, 0, 0, f"服务器: {self.guild.name}")
@@ -249,7 +293,7 @@ class LeakerTracker:
 
             if len(self.members_with_roles) == 0:
                 output_progress(0, 0, 0, "错误: 没有找到拥有指定身份组的成员")
-                await self.client.close()
+                await self.close_all_clients()
                 return
 
             # 设置发送消息的频道
@@ -257,14 +301,14 @@ class LeakerTracker:
                 self.send_channel = self.guild.get_channel(self.send_channel_id)
                 if not self.send_channel:
                     output_progress(0, 0, 0, "错误: 找不到发送消息的频道")
-                    await self.client.close()
+                    await self.close_all_clients()
                     return
             else:
                 self.send_channel = self.guild.text_channels[0] if self.guild.text_channels else None
 
             if not self.send_channel and not self.webhook_url:
                 output_progress(0, 0, 0, "错误: 没有可用的发送频道或Webhook")
-                await self.client.close()
+                await self.close_all_clients()
                 return
 
             output_progress(0, 0, len(self.members_with_roles),
@@ -324,7 +368,7 @@ class LeakerTracker:
             else:
                 output_progress(0, 0, 0, "未找到泄露者")
 
-            await self.client.close()
+            await self.close_all_clients()
 
         await self.client.start(self.token)
 
