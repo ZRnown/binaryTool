@@ -129,27 +129,38 @@ class LeakerTracker:
         try:
             if self.webhook_url:
                 # 使用webhook发送
+                output_progress(0, 0, 0, f"使用Webhook发送消息...")
                 async with aiohttp.ClientSession() as session:
                     payload = {"content": self.test_message}
                     async with asyncio.timeout(30):  # 30秒超时
                         async with session.post(self.webhook_url, json=payload) as resp:
                             if resp.status != 204 and resp.status != 200:
-                                output_progress(0, 0, 0, f"Webhook发送失败: {resp.status}")
-                                raise Exception(f"Webhook发送失败: {resp.status}")
+                                text = await resp.text()
+                                output_progress(0, 0, 0, f"Webhook发送失败: HTTP {resp.status} - {text}")
+                                raise Exception(f"Webhook发送失败: HTTP {resp.status}")
+                            output_progress(0, 0, 0, "Webhook发送成功")
             else:
                 # 使用账号发送
                 if self.send_channel:
+                    output_progress(0, 0, 0, f"使用账号发送消息到频道: {self.send_channel.name}")
                     await asyncio.wait_for(
                         self.send_channel.send(self.test_message),
                         timeout=30  # 30秒超时
                     )
+                    output_progress(0, 0, 0, "消息发送成功")
                 else:
                     raise Exception("没有可用的发送频道")
         except asyncio.TimeoutError:
-            output_progress(0, 0, 0, "【错误】发送消息超时")
+            output_progress(0, 0, 0, "【错误】发送消息超时（30秒）")
             raise Exception("发送消息超时")
+        except discord.Forbidden as e:
+            output_progress(0, 0, 0, f"【错误】没有权限发送消息: {e}")
+            raise Exception(f"没有权限发送消息: {e}")
+        except discord.HTTPException as e:
+            output_progress(0, 0, 0, f"【错误】Discord API错误: {e.status} - {e.text}")
+            raise Exception(f"Discord API错误: {e.status} - {e.text}")
         except Exception as e:
-            output_progress(0, 0, 0, f"【错误】发送消息失败: {e}")
+            output_progress(0, 0, 0, f"【错误】发送消息失败: {type(e).__name__}: {e}")
             raise
 
     async def binary_search(self, suspects: List[discord.Member],
