@@ -10,6 +10,14 @@ use tokio::process::Command;
 
 static RUNNING: AtomicBool = AtomicBool::new(false);
 
+fn tracker_filename() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "tracker.exe"
+    } else {
+        "tracker"
+    }
+}
+
 /// 获取tracker可执行文件路径，处理Windows长路径前缀
 fn get_tracker_path(app_handle: &tauri::AppHandle) -> Result<PathBuf, String> {
     if cfg!(debug_assertions) {
@@ -18,7 +26,8 @@ fn get_tracker_path(app_handle: &tauri::AppHandle) -> Result<PathBuf, String> {
     } else {
         // 生产模式：尝试多种路径
         // 方式1: 使用 resolve_resource
-        if let Some(path) = app_handle.path_resolver().resolve_resource("tracker.exe") {
+        let tracker_name = tracker_filename();
+        if let Some(path) = app_handle.path_resolver().resolve_resource(tracker_name) {
             let path_str = path.to_string_lossy().to_string();
             let clean_path = if path_str.starts_with("\\\\?\\") {
                 PathBuf::from(&path_str[4..])
@@ -32,7 +41,7 @@ fn get_tracker_path(app_handle: &tauri::AppHandle) -> Result<PathBuf, String> {
 
         // 方式2: 使用 resource_dir
         if let Some(resource_dir) = app_handle.path_resolver().resource_dir() {
-            let path = resource_dir.join("tracker.exe");
+            let path = resource_dir.join(tracker_name);
             let path_str = path.to_string_lossy().to_string();
             let clean_path = if path_str.starts_with("\\\\?\\") {
                 PathBuf::from(&path_str[4..])
@@ -47,20 +56,20 @@ fn get_tracker_path(app_handle: &tauri::AppHandle) -> Result<PathBuf, String> {
         // 方式3: 使用 exe 所在目录
         if let Ok(exe_path) = std::env::current_exe() {
             if let Some(exe_dir) = exe_path.parent() {
-                // 尝试 exe_dir/resources/tracker.exe
-                let path = exe_dir.join("resources").join("tracker.exe");
+                // 尝试应用旁的 resources/tracker 文件
+                let path = exe_dir.join("resources").join(tracker_name);
                 if path.exists() {
                     return Ok(path);
                 }
                 // 尝试 exe_dir/tracker.exe
-                let path = exe_dir.join("tracker.exe");
+                let path = exe_dir.join(tracker_name);
                 if path.exists() {
                     return Ok(path);
                 }
             }
         }
 
-        Err("找不到tracker.exe，请确保程序完整安装".to_string())
+        Err(format!("找不到{}，请确保程序完整安装", tracker_name))
     }
 }
 
